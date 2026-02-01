@@ -8,7 +8,7 @@
   <style>
     body { font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem; background: #020617; color: #e5e7eb; }
     h1 { font-size: 1.5rem; margin-bottom: 0.4rem; }
-    .card { max-width: 900px; margin: 0 auto; background: rgba(15,23,42,0.95); border-radius: 0.75rem; padding: 1.25rem 1.5rem; border: 1px solid rgba(148,163,184,0.25); box-shadow: 0 18px 35px rgba(0,0,0,0.5); }
+    .card { max-width: 520px; margin: 0 auto; background: rgba(15,23,42,0.95); border-radius: 0.75rem; padding: 1.25rem 1.5rem; border: 1px solid rgba(148,163,184,0.25); box-shadow: 0 18px 35px rgba(0,0,0,0.5); }
     label { font-size: 0.85rem; color: #9ca3af; display: block; margin-bottom: 0.25rem; }
     input { width: 100%; padding: 0.55rem 0.7rem; border-radius: 0.5rem; border: 1px solid #4b5563; background: #020617; color: #e5e7eb; box-sizing: border-box; font-size: 0.95rem; margin-bottom: 0.3rem; }
     input:focus { outline: 2px solid #38bdf8; border-color: #38bdf8; }
@@ -18,12 +18,12 @@
     button:disabled { opacity: 0.6; cursor: wait; }
     .status { margin-top: 1rem; font-size: 0.9rem; line-height: 1.5; padding: 1rem; background: rgba(34,197,94,0.1); border-radius: 0.5rem; border-left: 3px solid #4ade80; }
     .status.error { background: rgba(239,68,68,0.1); border-left-color: #f87171; }
-    .pill { padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 500; margin-right: 0.5rem; display: inline-block; }
+    .pill { padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 500; margin-right: 0.5rem; }
     .pill-live { background: rgba(34,197,94,0.2); color: #4ade80; }
     .pill-scheduled { background: rgba(56,189,248,0.2); color: #60a5fa; }
     .pill-landed { background: rgba(168,85,247,0.2); color: #a78bfa; }
     .pill-delayed { background: rgba(239,68,68,0.2); color: #f87171; }
-    #map { height: 400px; width: 100%; margin-top: 1rem; border-radius: 0.5rem; display: none; }
+    #map { height: 300px; width: 100%; border-radius: 0.5rem; margin-top: 1rem; }
     small { display: block; margin-top: 0.75rem; color: #9ca3af; font-size: 0.75rem; }
     @media (max-width: 480px) { body { padding: 1rem; } .row { flex-direction: column; } }
   </style>
@@ -31,51 +31,47 @@
 <body>
   <div class="card">
     <h1>My Flight Tracker</h1>
-    <p style="font-size:0.9rem;color:#9ca3af;margin-top:0;">Enter flight number &amp; date. Shows status + route map. Powered by Aviationstack + Leaflet.</p>
+    <p style="font-size:0.9rem;color:#9ca3af;margin-top:0;">Enter flight number & date. Shows status + route map. Powered by Aviationstack + Leaflet.</p>
 
     <div class="row">
       <div>
         <label for="flightNo">Flight number</label>
-        <input id="flightNo" placeholder="e.g. AI175" />
+        <input id="flightNo" placeholder="e.g. AI1867" value="AI1867" />
       </div>
       <div>
         <label for="date">Flight date (YYYY-MM-DD)</label>
-        <input id="date" type="date" />
+        <input id="date" type="date" value="2026-01-16" />
       </div>
     </div>
 
     <div class="row">
       <div>
         <label for="airline">Airline code (optional)</label>
-        <input id="airline" placeholder="e.g. AI, 6E, 9I" />
+        <input id="airline" placeholder="e.g. AI" value="AI" />
       </div>
     </div>
 
     <button id="trackBtn">Get Flight Status + Map</button>
 
     <div id="status"></div>
-    <div id="map"></div>
 
-    <small>Live data: status, times, gates, delays, route map with airports and flight path.</small>
+    <small>Live  status, times, gates, delays, route map with airports and flight path.</small>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const API_KEY = "83ae982414bdd0a746b4d2022dc1bd85";
+    // CORS proxy for HTTP API (free tier doesn't support HTTPS) [web:182][web:184]
+    const CORS_PROXY = "https://api.allorigins.win/raw?url=";
     const BASE_URL = "http://api.aviationstack.com/v1/flights";
 
     const flightEl = document.getElementById("flightNo");
     const dateEl = document.getElementById("date");
     const airlineEl = document.getElementById("airline");
     const statusEl = document.getElementById("status");
-    const mapEl = document.getElementById("map");
     const trackBtn = document.getElementById("trackBtn");
 
     let map = null;
-    let markers = [];
-    let routeLine = null;
-
-    dateEl.valueAsDate = new Date();
 
     function statusPill(status) {
       const s = (status || "").toLowerCase();
@@ -86,53 +82,58 @@
       return `<span class="pill pill-scheduled">${status || "Unknown"}</span>`;
     }
 
-    function initMap(depLat, depLng, arrLat, arrLng, depName, arrName, flightNum) {
-      mapEl.style.display = 'block';
-      
-      if (map) {
-        map.remove();
-        markers = [];
-        routeLine = null;
-      }
+    function initMap(depLat, depLon, arrLat, arrLon, depName, arrName, depIata, arrIata) {
+      if (map) map.remove();
+
+      const mapDiv = document.createElement('div');
+      mapDiv.id = 'map';
+      statusEl.appendChild(mapDiv);
 
       const centerLat = (depLat + arrLat) / 2;
-      const centerLng = (depLng + arrLng) / 2;
+      const centerLon = (depLon + arrLon) / 2;
 
-      map = L.map('map').setView([centerLat, centerLng], 6);
+      map = L.map('map').setView([centerLat, centerLon], 6);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: 'Â© OpenStreetMap contributors',
-        maxZoom: 19
+        attribution: '© OpenStreetMap'
       }).addTo(map);
 
-      const depMarker = L.marker([depLat, depLng]).addTo(map)
-        .bindPopup(`<strong>${depName}</strong><br/>Departure`);
-      const arrMarker = L.marker([arrLat, arrLng]).addTo(map)
-        .bindPopup(`<strong>${arrName}</strong><br/>Arrival`);
+      const depIcon = L.divIcon({
+        html: '<div style="font-size:24px;">🛫</div>',
+        className: '',
+        iconSize: [30, 30]
+      });
 
-      markers.push(depMarker, arrMarker);
+      const arrIcon = L.divIcon({
+        html: '<div style="font-size:24px;">🛬</div>',
+        className: '',
+        iconSize: [30, 30]
+      });
 
-      routeLine = L.polyline([[depLat, depLng], [arrLat, arrLng]], {
+      L.marker([depLat, depLon], {icon: depIcon}).addTo(map)
+        .bindPopup(`<b>${depIata}</b><br>${depName}`);
+
+      L.marker([arrLat, arrLon], {icon: arrIcon}).addTo(map)
+        .bindPopup(`<b>${arrIata}</b><br>${arrName}`);
+
+      L.polyline([[depLat, depLon], [arrLat, arrLon]], {
         color: '#38bdf8',
-        weight: 3,
-        opacity: 0.7,
-        dashArray: '10, 10'
+        weight: 2,
+        dashArray: '5, 10'
       }).addTo(map);
 
       const midLat = (depLat + arrLat) / 2;
-      const midLng = (depLng + arrLng) / 2;
-      
+      const midLon = (depLon + arrLon) / 2;
+
       const planeIcon = L.divIcon({
-        html: '<div style="font-size:24px;">âï¸</div>',
+        html: '<div style="font-size:20px;">✈️</div>',
         className: '',
-        iconSize: [30, 30],
-        iconAnchor: [15, 15]
+        iconSize: [25, 25]
       });
 
-      L.marker([midLat, midLng], { icon: planeIcon }).addTo(map)
-        .bindPopup(`<strong>${flightNum}</strong><br/>Flight path`);
+      L.marker([midLat, midLon], {icon: planeIcon}).addTo(map);
 
-      map.fitBounds([[depLat, depLng], [arrLat, arrLng]], { padding: [50, 50] });
+      map.fitBounds([[depLat, depLon], [arrLat, arrLon]], {padding: [50, 50]});
     }
 
     async function getFlightStatus() {
@@ -148,7 +149,6 @@
       trackBtn.disabled = true;
       trackBtn.textContent = "Loading...";
       statusEl.innerHTML = "";
-      mapEl.style.display = 'none';
 
       try {
         const params = new URLSearchParams({
@@ -158,11 +158,20 @@
         });
         if (airline) params.append("airline_iata", airline);
 
-        const res = await fetch(`${BASE_URL}?${params}`);
+        // Use CORS proxy for HTTP endpoint [web:182][web:184]
+        const apiUrl = `${BASE_URL}?${params}`;
+        const url = `${CORS_PROXY}${encodeURIComponent(apiUrl)}`;
+
+        const res = await fetch(url);
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+
         const data = await res.json();
 
         if (!data.data || data.data.length === 0) {
-          statusEl.innerHTML = '<div class="status error">No flight found. Check flight number, airline code, and date.</div>';
+          statusEl.innerHTML = '<div class="status error">No flight found. Check flight number, date, or airline code. Try without airline code.</div>';
           return;
         }
 
@@ -180,40 +189,41 @@
             <div style="font-size:1.1rem;margin-bottom:0.5rem;">
               ${statusPill(f.flight_status)} <strong>${f.flight?.iata || flight}</strong>
             </div>
-            <div><strong>Airline:</strong> ${f.airline?.name || 'N/A'} (${f.airline?.iata || '-'})</div>
-            <div><strong>Route:</strong> ${dep.iata || '?'} â ${arr.iata || '?'}</div>
-            <div><strong>Departure:</strong> ${dep.airport || 'N/A'} (${dep.iata}) at ${depTime} 
+            <div><strong>Airline:</strong> ${f.airline?.name || 'N/A'} (${f.airline?.iata || ''})</div>
+            <div><strong>Route:</strong> ${dep.iata || ''} → ${arr.iata || ''}</div>
+            <div><strong>Departure:</strong> ${dep.airport || ''} (${dep.iata}) ${depTime} 
               ${depDelay > 0 ? `<span class="pill pill-delayed">+${depDelay}min</span>` : ''}
             </div>
-            <div><strong>Arrival:</strong> ${arr.airport || 'N/A'} (${arr.iata}) at ${arrTime} 
+            <div><strong>Arrival:</strong> ${arr.airport || ''} (${arr.iata}) ${arrTime} 
               ${arrDelay > 0 ? `<span class="pill pill-delayed">+${arrDelay}min</span>` : ''}
             </div>
             ${f.live ? `
-              <div style="margin-top:0.5rem;"><strong>Live:</strong> ${f.live.altitude || 0}ft, ${f.live.speed_horizontal || 0}km/h, ${f.live.latitude?.toFixed(2) || '?'}Â°N ${f.live.longitude?.toFixed(2) || '?'}Â°E</div>
+              <div style="margin-top:0.5rem;"><strong>Live:</strong> ${f.live.altitude || ''}ft, ${f.live.speed_horizontal || ''}km/h</div>
             ` : ''}
             ${dep.terminal ? `<div><strong>Dep Terminal:</strong> ${dep.terminal} Gate: ${dep.gate || '-'}</div>` : ''}
             ${arr.terminal ? `<div><strong>Arr Terminal:</strong> ${arr.terminal} Baggage: ${arr.baggage || '-'}</div>` : ''}
           </div>
         `;
 
+        // Draw map if coordinates available
         if (dep.latitude && dep.longitude && arr.latitude && arr.longitude) {
           initMap(
             parseFloat(dep.latitude),
             parseFloat(dep.longitude),
             parseFloat(arr.latitude),
             parseFloat(arr.longitude),
-            `${dep.airport} (${dep.iata})`,
-            `${arr.airport} (${arr.iata})`,
-            f.flight?.iata || flight
+            dep.airport || dep.iata,
+            arr.airport || arr.iata,
+            dep.iata,
+            arr.iata
           );
         } else {
-          mapEl.style.display = 'none';
-          statusEl.innerHTML += '<div class="status error" style="margin-top:0.5rem;">Map unavailable: airport coordinates not provided by API.</div>';
+          statusEl.innerHTML += '<div style="margin-top:0.5rem;color:#9ca3af;">Map not available (missing coordinates)</div>';
         }
 
       } catch (err) {
         console.error(err);
-        statusEl.innerHTML = `<div class="status error">Error: ${err.message}. Check your network or API limits.</div>`;
+        statusEl.innerHTML = `<div class="status error">Error: ${err.message}. Check flight number, date, or try again later.</div>`;
       } finally {
         trackBtn.disabled = false;
         trackBtn.textContent = "Get Flight Status + Map";
